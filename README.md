@@ -171,6 +171,40 @@ mutation LoginUser {
 }
 ```
 
+### REST API Security
+
+The plugin includes REST API security configuration that:
+
+- Requires authentication for all REST API endpoints except specific test routes
+- Allows unauthenticated access to JWT authentication test endpoints
+- Returns proper error responses for unauthorized requests
+
+Example of protected endpoint access:
+```bash
+# This will fail with 401 if not authenticated
+curl http://your-site/wp-json/wp/v1/posts
+
+# This will work with a valid auth token
+curl -H "Authorization: Bearer your-jwt-token" http://your-site/wp-json/wp/v1/posts
+
+# Auth test endpoints are publicly accessible
+curl http://your-site/wp-json/wp-graphql-extended/v1/auth-test/info
+```
+
+Available test endpoints:
+- `GET /wp-json/wp-graphql-extended/v1/auth-test/info` - Get JWT configuration info
+- `POST /wp-json/wp-graphql-extended/v1/auth-test/generate` - Generate a test token
+- `POST /wp-json/wp-graphql-extended/v1/auth-test/decode` - Decode and validate a token
+
+Configure custom endpoint access by extending the `RestConfiguration` class:
+
+```php
+add_filter('wp-graphql-extended/rest/allowed_routes', function($routes) {
+    $routes[] = 'my-namespace/v1/public-endpoint';
+    return $routes;
+});
+```
+
 2. Use the token in your requests:
 ```bash
 curl -H "Authorization: Bearer your-token" http://your-site/graphql

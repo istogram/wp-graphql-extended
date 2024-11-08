@@ -7,7 +7,6 @@ use \Firebase\JWT\JWT;
 use \Firebase\JWT\Key;
 
 class AuthTest {
-    private $namespace = 'istogram/v1';
     private $route = 'auth-test';
 
     public function __construct() {
@@ -17,7 +16,7 @@ class AuthTest {
 
     public function handleRestAuth($result) {
         $current_route = trim(str_replace(rest_get_url_prefix(), '', $_SERVER['REQUEST_URI']), '/');
-        $test_route = trim($this->namespace . '/' . $this->route, '/');
+        $test_route = trim(RestConfiguration::getNamespace() . '/' . $this->route, '/');
         
         if (strpos($current_route, $test_route) === 0) {
             return true;
@@ -27,13 +26,15 @@ class AuthTest {
     }
 
     public function registerRoutes() {
-        register_rest_route($this->namespace, $this->route . '/info', [
+        $namespace = RestConfiguration::getNamespace();
+
+        register_rest_route($namespace, $this->route . '/info', [
             'methods' => 'GET',
             'callback' => [$this, 'getTokenInfo'],
             'permission_callback' => '__return_true'
         ]);
 
-        register_rest_route($this->namespace, $this->route . '/generate', [
+        register_rest_route($namespace, $this->route . '/generate', [
             'methods' => 'POST',
             'callback' => [$this, 'generateTestToken'],
             'permission_callback' => '__return_true',
@@ -50,7 +51,7 @@ class AuthTest {
             ]
         ]);
 
-        register_rest_route($this->namespace, $this->route . '/decode', [
+        register_rest_route($namespace, $this->route . '/decode', [
             'methods' => 'POST',
             'callback' => [$this, 'decodeToken'],
             'permission_callback' => '__return_true',
