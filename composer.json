@@ -1,0 +1,29 @@
+{
+    "name": "istogram/wp-graphql-extended",
+    "description": "Extended GraphQL functionality for WordPress with JWT authentication, SEO integration, pagination, and debugging",
+    "type": "wordpress-plugin",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "istogram"
+        }
+    ],
+    "require": {
+        "php": ">=7.4",
+        "composer/installers": "^2.0",
+        "firebase/php-jwt": "^6.0"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Istogram\\GraphQLExtended\\": "src/"
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "vendor-dir": "../../vendor"
+    },
+    "minimum-stability": "stable"
+}
