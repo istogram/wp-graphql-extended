@@ -36,30 +36,13 @@ function wp_graphql_extended_find_autoloader() {
         // Bedrock's vendor directory (main project)
         $bedrock_root . '/vendor/autoload.php',
         
-        // Development environment paths
-        dirname(dirname($plugin_real_path)) . '/istogram-api/vendor/autoload.php',
-        
         // Plugin's own vendor directory
         $plugin_real_path . '/vendor/autoload.php',
         
-        // Other possible locations as fallback
-        dirname($plugin_real_path) . '/vendor/autoload.php',
+        // Standard WordPress locations
         defined('WPMU_PLUGIN_DIR') ? WPMU_PLUGIN_DIR . '/vendor/autoload.php' : null,
         defined('WP_PLUGIN_DIR') ? WP_PLUGIN_DIR . '/vendor/autoload.php' : null
     ];
-
-    // // Debug log to help troubleshoot
-    // if (defined('WP_DEBUG') && WP_DEBUG) {
-    //     error_log('WP GraphQL Extended - Searching for autoloader in:');
-    //     error_log('Plugin real path: ' . $plugin_real_path);
-    //     error_log('WP Path: ' . $wp_path);
-    //     error_log('Bedrock root: ' . $bedrock_root);
-    //     foreach ($possible_paths as $path) {
-    //         if ($path) {
-    //             error_log('Checking path: ' . $path . ' - ' . (file_exists($path) ? 'EXISTS' : 'NOT FOUND'));
-    //         }
-    //     }
-    // }
 
     // Find the first existing autoloader
     foreach ($possible_paths as $path) {
