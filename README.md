@@ -241,9 +241,9 @@ query GetPosts {
 
 Available when `WP_DEBUG` is true:
 
-- Token Info: `GET /wp-json/istogram/v1/auth-test/info`
-- Generate Test Token: `POST /wp-json/istogram/v1/auth-test/generate`
-- Decode Token: `POST /wp-json/istogram/v1/auth-test/decode`
+- Token Info: `GET /wp-json/wp-graphql-extended/v1/auth-test/info`
+- Generate Test Token: `POST /wp-json/wp-graphql-extended/v1/auth-test/generate`
+- Decode Token: `POST /wp-json/wp-graphql-extended/v1/auth-test/decode`
 
 ## Nuxt.js Integration
 
