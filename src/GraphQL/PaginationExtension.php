@@ -8,16 +8,37 @@ class PaginationExtension {
         add_filter('graphql_PostObjectsConnectionOrderbyEnum_values', [$this, 'addOffsetToOrderBy']);
         add_filter('graphql_input_fields', [$this, 'addOffsetPaginationArg'], 10, 2);
         add_filter('graphql_post_object_connection_query_args', [$this, 'handleOffsetPagination'], 10, 3);
-        
+        add_filter('posts_request', [$this, 'captureTermId'], 10, 2);
+
         if ($this->isDebugEnabled()) {
             add_filter('posts_request', [$this, 'logSQLQuery'], 10, 2);
             add_action('graphql_return_response', [$this, 'logResponse']);
         }
     }
 
+    public function captureTermId($sql, $query) {
+        if (defined('GRAPHQL_REQUEST') && GRAPHQL_REQUEST) {
+            if (preg_match('/term_taxonomy_id IN \((\d+)\)/', $sql, $matches)) {
+                $this->current_term_id = (int) $matches[1];
+            }
+        }
+        return $sql;
+    }
+
     public function registerFields() {
         $this->logDebug('Registering total field for pagination');
+
+        // Register OffsetPagination type
+        register_graphql_object_type('OffsetPagination', [
+            'fields' => [
+                'total' => [
+                    'type' => 'Int',
+                    'description' => 'Total number of items'
+                ]
+            ]
+        ]);
         
+        // Register for posts
         register_graphql_field('RootQueryToPostConnectionPageInfo', 'total', [
             'type' => 'Int',
             'description' => 'Total number of posts',
@@ -25,6 +46,64 @@ class PaginationExtension {
                 $total = wp_count_posts('post')->publish;
                 $this->logDebug('Resolving total posts count', ['total' => $total]);
                 return $total;
+            }
+        ]);
+
+
+        // Register for category posts
+        register_graphql_field('CategoryToPostConnectionPageInfo', 'offsetPagination', [
+            'type' => 'OffsetPagination',
+            'description' => 'Offset pagination information',
+            'resolve' => function($page_info, $args, $context, $info) {
+                if ($this->current_term_id) {
+                    global $wpdb;
+                    
+                    // Get term_id from term_taxonomy table
+                    $term_id = $wpdb->get_var($wpdb->prepare(
+                        "SELECT term_id FROM {$wpdb->term_taxonomy} WHERE term_taxonomy_id = %d",
+                        $this->current_term_id
+                    ));
+                    
+                    if ($term_id) {
+                        // Count posts for this term
+                        $count = $wpdb->get_var($wpdb->prepare(
+                            "SELECT COUNT(DISTINCT p.ID) 
+                            FROM {$wpdb->posts} p 
+                            JOIN {$wpdb->term_relationships} tr ON p.ID = tr.object_id 
+                            JOIN {$wpdb->term_taxonomy} tt ON tr.term_taxonomy_id = tt.term_taxonomy_id 
+                            WHERE tt.term_id = %d 
+                            AND p.post_type = 'post' 
+                            AND p.post_status = 'publish'",
+                            $term_id
+                        ));
+
+                        return [
+                            'total' => (int) $count
+                        ];
+                    }
+                }
+
+                return [
+                    'total' => 0
+                ];
+            }
+        ]);
+
+        // Register for tag posts
+        register_graphql_field('TagToPostConnectionPageInfo', 'offsetPagination', [
+            'type' => 'OffsetPagination',
+            'description' => 'Offset pagination information',
+            'resolve' => function($page_info, $args, $context, $info) {
+                if($this->current_term_id) {
+                    $count = get_term($this->current_term_id, 'post_tag')->count;
+                    return [
+                        'total' => $count
+                    ];
+                }
+
+                return [
+                    'total' => 0
+                ];
             }
         ]);
     }
@@ -42,7 +121,9 @@ class PaginationExtension {
     }
 
     public function addOffsetPaginationArg($fields, $type_name) {
-        if ($type_name === 'RootQueryToPostConnectionWhereArgs') {
+        if ($type_name === 'RootQueryToPostConnectionWhereArgs' || 
+            $type_name === 'CategoryToPostConnectionWhereArgs' || 
+            $type_name === 'TagToPostConnectionWhereArgs') {
             $this->logDebug('Adding offsetPagination to where args', [
                 'type_name' => $type_name
             ]);
