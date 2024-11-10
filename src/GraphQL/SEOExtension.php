@@ -15,7 +15,7 @@ class SEOExtension {
     }
 
     public function registerSEOTypes(): void {
-        // Twitter Card Type
+        // Twitter Card Type - Fix image field
         register_graphql_object_type('SEOTwitter', [
             'description' => 'Twitter card data from The SEO Framework',
             'fields' => [
@@ -28,11 +28,8 @@ class SEOExtension {
                     'description' => 'Twitter card description'
                 ],
                 'image' => [
-                    'type' => 'SEOImage',
-                    'description' => 'Twitter card image',
-                    'resolve' => function($source) {
-                        return ['url' => $source['image'] ?? null];
-                    }
+                    'type' => 'String', // Changed from SEOImage to String
+                    'description' => 'Twitter card image URL'
                 ],
                 'cardType' => [
                     'type' => 'String',
@@ -135,6 +132,27 @@ class SEOExtension {
             'description' => 'SEO data from The SEO Framework',
             'resolve' => [$this, 'resolveSEOField']
         ]);
+
+        // Add SEO field to Page type
+        register_graphql_field('Page', 'seo', [
+            'type' => 'SEO',
+            'description' => 'SEO data from The SEO Framework',
+            'resolve' => [$this, 'resolveSEOField']
+        ]);
+
+        // Add SEO field to Category type
+        register_graphql_field('Category', 'seo', [
+            'type' => 'SEO',
+            'description' => 'SEO data from The SEO Framework',
+            'resolve' => [$this, 'resolveCategorySEOField']
+        ]);
+
+        // Add SEO field to Tag type
+        register_graphql_field('Tag', 'seo', [
+            'type' => 'SEO',
+            'description' => 'SEO data from The SEO Framework',
+            'resolve' => [$this, 'resolveTagSEOField']
+        ]);
     }
 
     /**
@@ -167,6 +185,212 @@ class SEOExtension {
             ]);
         }
         return $value;
+    }
+
+    public function resolveCategorySEOField($category): ?array {
+        // Get The SEO Framework instance
+        $tsf = \the_seo_framework();
+        
+        if (!$tsf || !isset($category->term_id)) {
+            $this->logDebug('Unable to resolve Category SEO field', [
+                'tsf_exists' => (bool)$tsf,
+                'category' => $category,
+                'term_id' => $category->term_id ?? null
+            ]);
+            return null;
+        }
+
+        try {
+            $term_id = $category->term_id;
+            
+            // Get the term meta
+            $term_meta = get_term_meta($term_id);
+            
+            // Build title and description with fallbacks
+            $title = $category->name;
+            $description = $category->description;
+
+            // Get robots meta using WP's built-in functions as fallback
+            $robots = [];
+            if (is_array($term_meta) && isset($term_meta['_tsf_robots'][0])) {
+                $robots = maybe_unserialize($term_meta['_tsf_robots'][0]);
+            }
+            
+            // Get canonical URL
+            $canonical_url = get_term_link($term_id);
+            if (is_wp_error($canonical_url)) {
+                $canonical_url = '';
+            }
+
+            // Get social image
+            $social_image_url = '';
+            if (is_array($term_meta) && isset($term_meta['_tsf_social_image_url'][0])) {
+                $social_image_url = $term_meta['_tsf_social_image_url'][0];
+            }
+
+            $social_image_url = $social_image_url ?: null; // Set to null if empty
+
+            $seo_data = [
+                'title' => wp_strip_all_tags($title),
+                'description' => wp_strip_all_tags($description),
+                'canonicalUrl' => $canonical_url,
+                'robots' => is_array($robots) ? implode(',', $robots) : '',
+                'openGraph' => [
+                    'title' => wp_strip_all_tags($title),
+                    'description' => wp_strip_all_tags($description),
+                    'image' => [
+                        'url' => $social_image_url
+                    ],
+                    'type' => 'website',
+                    'modifiedTime' => current_time('c')
+                ],
+                'twitter' => [
+                    'title' => wp_strip_all_tags($title),
+                    'description' => wp_strip_all_tags($description),
+                    'image' => $social_image_url, // Just pass the URL string directly
+                    'cardType' => 'summary_large_image'
+                ],
+                'schema' => [
+                    'articleType' => 'CollectionPage',
+                    'pageType' => 'CollectionPage'
+                ]
+            ];
+
+            // Try to get SEO Framework specific meta if available
+            if (method_exists($tsf->data()->plugin()->term(), 'get_meta')) {
+                $meta = $tsf->data()->plugin()->term()->get_meta($term_id);
+                
+                if (is_array($meta)) {
+                    if (!empty($meta['title'])) {
+                        $seo_data['title'] = $meta['title'];
+                        $seo_data['openGraph']['title'] = $meta['og_title'] ?: $meta['title'];
+                        $seo_data['twitter']['title'] = $meta['twitter_title'] ?: $meta['title'];
+                    }
+                    
+                    if (!empty($meta['description'])) {
+                        $seo_data['description'] = $meta['description'];
+                        $seo_data['openGraph']['description'] = $meta['og_description'] ?: $meta['description'];
+                        $seo_data['twitter']['description'] = $meta['twitter_description'] ?: $meta['description'];
+                    }
+                }
+            }
+
+            $this->logDebug('Generated Category SEO data', [
+                'term_id' => $term_id,
+                'data' => $seo_data
+            ]);
+
+            return $seo_data;
+        } catch (\Exception $e) {
+            $this->logDebug('Error generating Category SEO data', [
+                'term_id' => $category->term_id,
+                'error' => $e->getMessage()
+            ]);
+            return null;
+        }
+    }
+
+    public function resolveTagSEOField($tag): ?array {
+        // Get The SEO Framework instance
+        $tsf = \the_seo_framework();
+        
+        if (!$tsf || !isset($tag->term_id)) {
+            $this->logDebug('Unable to resolve Tag SEO field', [
+                'tsf_exists' => (bool)$tsf,
+                'tag' => $tag,
+                'term_id' => $tag->term_id ?? null
+            ]);
+            return null;
+        }
+
+        try {
+            $term_id = $tag->term_id;
+            
+            // Get the term meta
+            $term_meta = get_term_meta($term_id);
+            
+            // Build title and description with fallbacks
+            $title = $tag->name;
+            $description = $tag->description;
+
+            // Get robots meta using WP's built-in functions as fallback
+            $robots = [];
+            if (is_array($term_meta) && isset($term_meta['_tsf_robots'][0])) {
+                $robots = maybe_unserialize($term_meta['_tsf_robots'][0]);
+            }
+            
+            // Get canonical URL - Note the difference here: using tag-specific function
+            $canonical_url = get_tag_link($term_id);
+            if (is_wp_error($canonical_url)) {
+                $canonical_url = '';
+            }
+
+            // Get social image
+            $social_image_url = '';
+            if (is_array($term_meta) && isset($term_meta['_tsf_social_image_url'][0])) {
+                $social_image_url = $term_meta['_tsf_social_image_url'][0];
+            }
+
+            $social_image_url = $social_image_url ?: null;
+
+            $seo_data = [
+                'title' => wp_strip_all_tags($title),
+                'description' => wp_strip_all_tags($description),
+                'canonicalUrl' => $canonical_url,
+                'robots' => is_array($robots) ? implode(',', $robots) : '',
+                'openGraph' => [
+                    'title' => wp_strip_all_tags($title),
+                    'description' => wp_strip_all_tags($description),
+                    'image' => [
+                        'url' => $social_image_url
+                    ],
+                    'type' => 'website',
+                    'modifiedTime' => current_time('c')
+                ],
+                'twitter' => [
+                    'title' => wp_strip_all_tags($title),
+                    'description' => wp_strip_all_tags($description),
+                    'image' => $social_image_url,
+                    'cardType' => 'summary_large_image'
+                ],
+                'schema' => [
+                    'articleType' => 'CollectionPage',
+                    'pageType' => 'CollectionPage'
+                ]
+            ];
+
+            // Try to get SEO Framework specific meta if available
+            if (method_exists($tsf->data()->plugin()->term(), 'get_meta')) {
+                $meta = $tsf->data()->plugin()->term()->get_meta($term_id);
+                
+                if (is_array($meta)) {
+                    if (!empty($meta['title'])) {
+                        $seo_data['title'] = $meta['title'];
+                        $seo_data['openGraph']['title'] = $meta['og_title'] ?: $meta['title'];
+                        $seo_data['twitter']['title'] = $meta['twitter_title'] ?: $meta['title'];
+                    }
+                    
+                    if (!empty($meta['description'])) {
+                        $seo_data['description'] = $meta['description'];
+                        $seo_data['openGraph']['description'] = $meta['og_description'] ?: $meta['description'];
+                        $seo_data['twitter']['description'] = $meta['twitter_description'] ?: $meta['description'];
+                    }
+                }
+            }
+
+            $this->logDebug('Generated Tag SEO data', [
+                'term_id' => $term_id,
+                'data' => $seo_data
+            ]);
+
+            return $seo_data;
+        } catch (\Exception $e) {
+            $this->logDebug('Error generating Tag SEO data', [
+                'term_id' => $tag->term_id,
+                'error' => $e->getMessage()
+            ]);
+            return null;
+        }
     }
 
     public function resolveSEOField($post): ?array {
