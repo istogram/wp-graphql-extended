@@ -5,16 +5,24 @@ namespace Istogram\GraphQLExtended\GraphQL;
 use GraphQL\Type\Definition\ResolveInfo;
 use WPGraphQL\AppContext;
 
-class SEOExtension {
-    public function __construct() {
+class SEOExtension
+{
+    public function __construct()
+    {
         add_action('graphql_register_types', [$this, 'registerSEOTypes']);
-        
+
+        // Add settings for the frontend URL
+        add_action('admin_menu', [$this, 'addSettingsPage']);
+        add_action('admin_init', [$this, 'registerSettings']);
+
         if ($this->isDebugEnabled()) {
             add_action('graphql_resolve_field', [$this, 'logSEOFieldResolution'], 10, 4);
         }
     }
 
-    public function registerSEOTypes(): void {
+
+    public function registerSEOTypes(): void
+    {
         // Twitter Card Type - Fix image field
         register_graphql_object_type('SEOTwitter', [
             'description' => 'Twitter card data from The SEO Framework',
@@ -156,8 +164,132 @@ class SEOExtension {
     }
 
     /**
+     * Get the frontend URL for headless setup
+     *
+     * @return string The frontend URL without trailing slash
+     */
+    private function getFrontendUrl(): string
+    {
+        // Check for specific option first
+        $frontend_url = get_option('graphql_seo_frontend_url', '');
+
+        // If not set, try common options that might be set by other plugins
+        if (empty($frontend_url)) {
+            $frontend_url = get_option('istogram_frontend_url', '');
+        }
+
+        // If still not set, try others or use constants
+        if (empty($frontend_url)) {
+            // Check if a constant is defined (could be defined in wp-config.php)
+            if (defined('FRONTEND_URL')) {
+                $frontend_url = FRONTEND_URL;
+            } elseif (defined('HEADLESS_FRONTEND_URL')) {
+                $frontend_url = HEADLESS_FRONTEND_URL;
+            }
+        }
+
+        // If still empty, fallback to the WordPress home URL
+        if (empty($frontend_url)) {
+            $frontend_url = home_url();
+        }
+
+        // Remove trailing slash
+        return untrailingslashit($frontend_url);
+    }
+
+    /**
+     * Build a canonical URL for a post that matches the frontend URL structure
+     *
+     * @param int $post_id The post ID
+     * @return string The canonical URL
+     */
+    private function buildCanonicalUrl($post_id): string
+    {
+        // Get the post
+        $post = get_post($post_id);
+        if (!$post) {
+            $this->logDebug('Cannot build canonical URL - post not found', ['post_id' => $post_id]);
+            return '';
+        }
+
+        // Get frontend URL
+        $frontend_url = $this->getFrontendUrl();
+
+        // Get post info
+        $post_type = get_post_type($post);
+        $slug = $post->post_name;
+
+        $this->logDebug('Building canonical URL', [
+            'post_id' => $post_id,
+            'post_type' => $post_type,
+            'slug' => $slug,
+            'frontend_url' => $frontend_url
+        ]);
+
+        // Build URL based on post type
+        if ($post_type === 'post') {
+            return $frontend_url . '/blog/' . $slug;
+        } elseif ($post_type === 'page') {
+            // Handle home page
+            if ($post->ID === get_option('page_on_front')) {
+                return $frontend_url;
+            }
+
+            // Regular pages
+            return $frontend_url . '/' . $slug;
+        }
+
+        // For custom post types, use post_type/slug pattern
+        return $frontend_url . '/' . $post_type . '/' . $slug;
+    }
+
+    /**
+     * Build a canonical URL for a term that matches the frontend URL structure
+     *
+     * @param int $term_id The term ID
+     * @param string $taxonomy The taxonomy (category, post_tag, etc.)
+     * @return string The canonical URL
+     */
+    private function buildTermCanonicalUrl($term_id, $taxonomy): string
+    {
+        // Get the term
+        $term = get_term($term_id, $taxonomy);
+        if (is_wp_error($term) || !$term) {
+            $this->logDebug('Cannot build term canonical URL - term not found', [
+                'term_id' => $term_id,
+                'taxonomy' => $taxonomy
+            ]);
+            return '';
+        }
+
+        // Get frontend URL
+        $frontend_url = $this->getFrontendUrl();
+
+        // Get term slug
+        $slug = $term->slug;
+
+        $this->logDebug('Building term canonical URL', [
+            'term_id' => $term_id,
+            'taxonomy' => $taxonomy,
+            'slug' => $slug,
+            'frontend_url' => $frontend_url
+        ]);
+
+        // Build URL based on taxonomy
+        if ($taxonomy === 'category') {
+            return $frontend_url . '/category/' . $slug;
+        } elseif ($taxonomy === 'post_tag') {
+            return $frontend_url . '/tag/' . $slug;
+        }
+
+        // For custom taxonomies
+        return $frontend_url . '/' . $taxonomy . '/' . $slug;
+    }
+
+
+    /**
      * Log SEO field resolution
-     * 
+     *
      * @param mixed $value The value being filtered
      * @param mixed $source The source passed down the Resolve Tree
      * @param array $args Array of arguments input in the field as part of the GraphQL query
@@ -169,7 +301,8 @@ class SEOExtension {
      * @param mixed|null $field_resolver The default field resolver
      * @return mixed
      */
-    public function logSEOFieldResolution($value, $source = null, $args = [], $context = null, $info = null, $type_name = '', $field_key = '', $field = null, $field_resolver = null) {
+    public function logSEOFieldResolution($value, $source = null, $args = [], $context = null, $info = null, $type_name = '', $field_key = '', $field = null, $field_resolver = null)
+    {
         try {
             if ($field_key === 'seo') {
                 $this->logDebug('SEO field resolution', [
@@ -187,10 +320,17 @@ class SEOExtension {
         return $value;
     }
 
-    public function resolveCategorySEOField($category): ?array {
+    /**
+     * Resolve SEO field for categories with proper canonical URL handling
+     *
+     * @param object $category The category term object
+     * @return array|null The SEO data
+     */
+    public function resolveCategorySEOField($category): ?array
+    {
         // Get The SEO Framework instance
         $tsf = \the_seo_framework();
-        
+
         if (!$tsf || !isset($category->term_id)) {
             $this->logDebug('Unable to resolve Category SEO field', [
                 'tsf_exists' => (bool)$tsf,
@@ -202,10 +342,10 @@ class SEOExtension {
 
         try {
             $term_id = $category->term_id;
-            
+
             // Get the term meta
             $term_meta = get_term_meta($term_id);
-            
+
             // Build title and description with fallbacks
             $title = $category->name;
             $description = $category->description;
@@ -215,11 +355,25 @@ class SEOExtension {
             if (is_array($term_meta) && isset($term_meta['_tsf_robots'][0])) {
                 $robots = maybe_unserialize($term_meta['_tsf_robots'][0]);
             }
-            
-            // Get canonical URL
-            $canonical_url = get_term_link($term_id);
-            if (is_wp_error($canonical_url)) {
-                $canonical_url = '';
+
+            // Get original canonical URL
+            $original_canonical = get_term_link($term_id);
+            if (is_wp_error($original_canonical)) {
+                $original_canonical = '';
+            }
+
+            // Build our own canonical URL
+            $canonical_url = $this->buildTermCanonicalUrl($term_id, 'category');
+
+            $this->logDebug('Category canonical URL', [
+                'term_id' => $term_id,
+                'original_canonical' => $original_canonical,
+                'new_canonical' => $canonical_url
+            ]);
+
+            // Use our canonical URL if successfully built, otherwise fall back to original
+            if (empty($canonical_url)) {
+                $canonical_url = $original_canonical;
             }
 
             // Get social image
@@ -259,14 +413,14 @@ class SEOExtension {
             // Try to get SEO Framework specific meta if available
             if (method_exists($tsf->data()->plugin()->term(), 'get_meta')) {
                 $meta = $tsf->data()->plugin()->term()->get_meta($term_id);
-                
+
                 if (is_array($meta)) {
                     if (!empty($meta['title'])) {
                         $seo_data['title'] = $meta['title'];
                         $seo_data['openGraph']['title'] = $meta['og_title'] ?: $meta['title'];
                         $seo_data['twitter']['title'] = $meta['twitter_title'] ?: $meta['title'];
                     }
-                    
+
                     if (!empty($meta['description'])) {
                         $seo_data['description'] = $meta['description'];
                         $seo_data['openGraph']['description'] = $meta['og_description'] ?: $meta['description'];
@@ -290,10 +444,17 @@ class SEOExtension {
         }
     }
 
-    public function resolveTagSEOField($tag): ?array {
+    /**
+     * Resolve SEO field for tags with proper canonical URL handling
+     *
+     * @param object $tag The tag term object
+     * @return array|null The SEO data
+     */
+    public function resolveTagSEOField($tag): ?array
+    {
         // Get The SEO Framework instance
         $tsf = \the_seo_framework();
-        
+
         if (!$tsf || !isset($tag->term_id)) {
             $this->logDebug('Unable to resolve Tag SEO field', [
                 'tsf_exists' => (bool)$tsf,
@@ -305,10 +466,10 @@ class SEOExtension {
 
         try {
             $term_id = $tag->term_id;
-            
+
             // Get the term meta
             $term_meta = get_term_meta($term_id);
-            
+
             // Build title and description with fallbacks
             $title = $tag->name;
             $description = $tag->description;
@@ -318,11 +479,25 @@ class SEOExtension {
             if (is_array($term_meta) && isset($term_meta['_tsf_robots'][0])) {
                 $robots = maybe_unserialize($term_meta['_tsf_robots'][0]);
             }
-            
-            // Get canonical URL - Note the difference here: using tag-specific function
-            $canonical_url = get_tag_link($term_id);
-            if (is_wp_error($canonical_url)) {
-                $canonical_url = '';
+
+            // Get original canonical URL
+            $original_canonical = get_tag_link($term_id);
+            if (is_wp_error($original_canonical)) {
+                $original_canonical = '';
+            }
+
+            // Build our own canonical URL
+            $canonical_url = $this->buildTermCanonicalUrl($term_id, 'post_tag');
+
+            $this->logDebug('Tag canonical URL', [
+                'term_id' => $term_id,
+                'original_canonical' => $original_canonical,
+                'new_canonical' => $canonical_url
+            ]);
+
+            // Use our canonical URL if successfully built, otherwise fall back to original
+            if (empty($canonical_url)) {
+                $canonical_url = $original_canonical;
             }
 
             // Get social image
@@ -362,14 +537,14 @@ class SEOExtension {
             // Try to get SEO Framework specific meta if available
             if (method_exists($tsf->data()->plugin()->term(), 'get_meta')) {
                 $meta = $tsf->data()->plugin()->term()->get_meta($term_id);
-                
+
                 if (is_array($meta)) {
                     if (!empty($meta['title'])) {
                         $seo_data['title'] = $meta['title'];
                         $seo_data['openGraph']['title'] = $meta['og_title'] ?: $meta['title'];
                         $seo_data['twitter']['title'] = $meta['twitter_title'] ?: $meta['title'];
                     }
-                    
+
                     if (!empty($meta['description'])) {
                         $seo_data['description'] = $meta['description'];
                         $seo_data['openGraph']['description'] = $meta['og_description'] ?: $meta['description'];
@@ -393,10 +568,17 @@ class SEOExtension {
         }
     }
 
-    public function resolveSEOField($post): ?array {
+    /**
+     * Resolve SEO field for posts with proper canonical URL handling
+     *
+     * @param object $post The post object
+     * @return array|null The SEO data
+     */
+    public function resolveSEOField($post): ?array
+    {
         // Get The SEO Framework instance
         $tsf = \the_seo_framework();
-        
+
         if (!$tsf || !isset($post->ID)) {
             $this->logDebug('Unable to resolve SEO field', [
                 'tsf_exists' => (bool)$tsf,
@@ -412,7 +594,7 @@ class SEOExtension {
         // Get the meta values
         $seo_meta = get_post_meta($post->ID, '_genesis_title', true);
         $seo_desc = get_post_meta($post->ID, '_genesis_description', true);
-        
+
         // Get titles with fallback
         $title = !empty($seo_meta) ? $seo_meta : $tsf->get_title($post->ID);
         $description = !empty($seo_desc) ? $seo_desc : $tsf->get_description($post->ID);
@@ -426,10 +608,27 @@ class SEOExtension {
         ]);
 
         try {
+            // Get original canonical URL from SEO Framework
+            $original_canonical = $tsf->get_canonical_url($post->ID);
+
+            // Build our own canonical URL that matches frontend structure
+            $canonical_url = $this->buildCanonicalUrl($post->ID);
+
+            $this->logDebug('Canonical URL generation', [
+                'post_id' => $post->ID,
+                'original_canonical' => $original_canonical,
+                'new_canonical' => $canonical_url
+            ]);
+
+            // Use our canonical URL if successfully built, otherwise fall back to original
+            if (empty($canonical_url)) {
+                $canonical_url = $original_canonical;
+            }
+
             $seo_data = [
                 'title' => $title,
                 'description' => $description,
-                'canonicalUrl' => $tsf->get_canonical_url($post->ID),
+                'canonicalUrl' => $canonical_url,
                 'robots' => implode(',', $tsf->get_robots_meta($post->ID)),
                 'openGraph' => [
                     'title' => $tsf->get_open_graph_title($post->ID),
@@ -467,7 +666,8 @@ class SEOExtension {
         }
     }
 
-    private function logDebug(string $message, array $context = []): void {
+    private function logDebug(string $message, array $context = []): void
+    {
         if (!$this->isDebugEnabled()) {
             return;
         }
@@ -480,7 +680,83 @@ class SEOExtension {
         error_log($log_message);
     }
 
-    private function isDebugEnabled(): bool {
+    private function isDebugEnabled(): bool
+    {
         return defined('WP_DEBUG') && WP_DEBUG;
+    }
+
+
+    /**
+     * Add settings page
+     */
+    public function addSettingsPage()
+    {
+        add_options_page(
+            'GraphQL SEO Settings',
+            'GraphQL SEO',
+            'manage_options',
+            'graphql-seo-settings',
+            [$this, 'renderSettingsPage']
+        );
+    }
+
+    /**
+     * Register settings
+     */
+    public function registerSettings()
+    {
+        register_setting('graphql_seo_settings', 'graphql_seo_frontend_url');
+
+        add_settings_section(
+            'graphql_seo_main_section',
+            'Frontend URL Settings',
+            [$this, 'settingsSectionCallback'],
+            'graphql-seo-settings'
+        );
+
+        add_settings_field(
+            'graphql_seo_frontend_url',
+            'Frontend URL',
+            [$this, 'frontendUrlCallback'],
+            'graphql-seo-settings',
+            'graphql_seo_main_section'
+        );
+    }
+
+    /**
+     * Settings section description
+     */
+    public function settingsSectionCallback()
+    {
+        echo '<p>Configure settings for the GraphQL SEO integration.</p>';
+    }
+
+    /**
+     * Frontend URL field callback
+     */
+    public function frontendUrlCallback()
+    {
+        $frontend_url = get_option('graphql_seo_frontend_url', '');
+        echo '<input type="url" name="graphql_seo_frontend_url" value="' . esc_attr($frontend_url) . '" class="regular-text">';
+        echo '<p class="description">Enter the URL of your frontend site (e.g., https://www.yourdomain.com)</p>';
+    }
+
+    /**
+     * Render settings page
+     */
+    public function renderSettingsPage()
+    {
+        ?>
+    <div class="wrap">
+        <h1>GraphQL SEO Settings</h1>
+        <form method="post" action="options.php">
+            <?php
+                settings_fields('graphql_seo_settings');
+        do_settings_sections('graphql-seo-settings');
+        submit_button();
+        ?>
+        </form>
+    </div>
+    <?php
     }
 }
