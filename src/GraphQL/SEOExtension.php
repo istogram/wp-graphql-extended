@@ -395,6 +395,7 @@ class SEOExtension
                     'image' => [
                         'url' => $social_image_url
                     ],
+                    'url' => $canonical_url,
                     'type' => 'website',
                     'modifiedTime' => current_time('c')
                 ],
@@ -519,6 +520,7 @@ class SEOExtension
                     'image' => [
                         'url' => $social_image_url
                     ],
+                    'url' => $canonical_url,
                     'type' => 'website',
                     'modifiedTime' => current_time('c')
                 ],
@@ -636,6 +638,7 @@ class SEOExtension
                     'image' => [
                         'url' => $tsf->get_open_graph_image_url($post->ID)
                     ],
+                    'url' => $canonical_url,
                     'type' => $tsf->get_open_graph_type($post->ID),
                     'modifiedTime' => get_the_modified_time('c', $post->ID)
                 ],
